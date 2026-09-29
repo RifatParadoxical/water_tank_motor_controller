@@ -1,26 +1,18 @@
+#include <MQTT.h>
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266mDNS.h>
-#include <MQTT.h>
+#include <LittleFS.h>
+#include "credentials.h"
 
-#define WIFI_SSID "MyHomeWiFi"
-#define WIFI_PASSWORD "MyStrongPassword"
-#define MQTT_HOST "example.mqtt.broker.com"
-#define MQTT_PORT 8883
-#define MQTT_USER "esp32_sensor"
-#define MQTT_PASS "super-secret-password"
-#define MOTOR_STATUS "motor/status"
-#define OTA_USERNAME "admin1"
-#define OTA_PASSWORD "ota-admin-pass"
+const char* AP_SSID = "hello world";
+const char* AP_PASSWORD = "hello world";
+const char* hostname = "watermotor";
 
 const int RELAY_PIN = 2;
 const int SWITCH_PIN = 3;
-const char* hostname = "watermotor";
-
-volatile bool switchState = false;
-bool motorState = false;
 
 WiFiClientSecure net;
 ESP8266HTTPUpdateServer httpUpdater;
@@ -30,10 +22,37 @@ ESP8266WebServer server(80);
 unsigned long lastReconnectAttempt = 0;
 unsigned long lastDebounceTime = 0;
 const unsigned long debounceDelay = 50;
+const unsigned long WIFI_TIMEOUT = 15000;
 int lastPhysicalReading = LOW;
+volatile bool switchState = false;
+bool motorState = false;
+
+String saved_ssid = "";
+String saved_pass = "";
 
 void IRAM_ATTR handleSwitchInterrupt() {
   switchState = true;
+}
+
+void savedWiFiCredentials(const String &ssid, const String &pass){
+  File file = LittleFS.open("/wifi.json", "w");
+  if(!file) return;
+
+  String json = "{\"ssid\":\"" + ssid + "\",\"pass\":\"" + pass + "\"}";
+  file.print(json);
+  file.close()
+}
+
+bool loadWiFiCredentials(String &ssid, String &pass){
+  if(!LittleFS.exists("/wifi.json")) return false;
+
+  File file = LittleFS.open("/wifi.json", "r");
+  if (!file) return false
+  String content = file.readString();
+  file.close();
+
+  int ssidStart = content.indexOf("\"ssid\":\"") + 8;
+
 }
 
 void handleRoot() {
@@ -51,6 +70,23 @@ void setMotor(bool turnOn, bool publishToMqtt = true) {
   if (publishToMqtt && client.connected()) {
     client.publish(MOTOR_STATUS, motorState ? "true" : "false", true, 1);
   }
+}
+
+void WiFiConnection(){
+  preferences.begin("wifi-creds", false);
+  if (!preferences.isKey("ssid")){
+      WiFi.mode(WIFI_AP);
+      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  } else {
+    WiFi.disconnect();
+    WiFi.mode(WIFI_STA);
+    WiFi.hostname(hostname);
+    WiFi.setAutoReconnect(true);
+    WiFi.begin(preferences.getString("ssid"), preferences.getString("pass"));
+    
+  }
+  preferences.end();
+
 }
 
 void messageReceived(String &topic, String &payload) {
@@ -75,6 +111,7 @@ bool connectMQTT() {
 void setup() {
   delay(2000);
   Serial.begin(115200, SERIAL_8N1, SERIAL_TX_ONLY);
+  Serial.println();
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(SWITCH_PIN, INPUT);
 
@@ -85,9 +122,7 @@ void setup() {
 
   // Insecure mode allows TLS connection without validating CA certificates
   net.setInsecure();
-  WiFi.mode(WIFI_STA);
-  WiFi.hostname(hostname);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFiConnection();
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
