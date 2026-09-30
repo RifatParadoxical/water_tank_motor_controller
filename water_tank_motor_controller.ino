@@ -21,17 +21,35 @@ ESP8266WebServer server(80);
 
 unsigned long lastReconnectAttempt = 0;
 unsigned long lastDebounceTime = 0;
+unsigned long staConnectStart = 0;
+
 const unsigned long debounceDelay = 50;
 const unsigned long WIFI_TIMEOUT = 15000;
+
 int lastPhysicalReading = LOW;
 volatile bool switchState = false;
 bool motorState = false;
+bool staConnected = false;
 
 String saved_ssid = "";
 String saved_pass = "";
 
 void IRAM_ATTR handleSwitchInterrupt() {
   switchState = true;
+}
+
+void checkSTAConnection(){
+  if (staConnected) return;
+
+    if (WiFi.status() == WL_CONNECTED) {
+      staConnected = true;
+      Serial.print("STA IP: ");
+      Serial.println(WiFi.localIP());
+      return;
+    }
+    if (millis() - staConnectStart > WIFI_TIMEOUT) {
+      Serial.println("STA failed — AP still available at 192.168.4.1");
+    }
 }
 
 void savedWiFiCredentials(const String &ssid, const String &pass){
@@ -52,7 +70,13 @@ bool loadWiFiCredentials(String &ssid, String &pass){
   file.close();
 
   int ssidStart = content.indexOf("\"ssid\":\"") + 8;
-
+  int ssidEnd = content.indexOf("\"", ssidStart);
+  int passStart = context.indexOf("\"pass\":\"") + 8;
+  int passEnd = context.indexOf("\"", passStart);
+  if (ssidStart < 8 || passStart < 8) return false;
+  ssid = content.substring(ssidStart, ssidEnd);
+  pass = content.substring(passStart, passEnd);
+  return ssid.length() > 0;
 }
 
 void handleRoot() {
@@ -60,7 +84,38 @@ void handleRoot() {
     &server, "/update",
     OTA_USERNAME,
     OTA_PASSWORD);
+  server.on("/", HTTP_GET,  handleConfigPage);
+  server.on("/save", HTTP_POST, handleSave);
   server.begin();
+}
+
+void handleConfigPage() {
+  String html = R"rawliteral(
+    <!DOCTYPE html><html><body>
+    <h2>WiFi Config</h2>
+    <form action="/save" method="POST">
+      SSID: <input name="ssid" length="32"><br>
+      Password: <input name="pass" length="64"><br>
+      <input type="submit" value="Save & Restart">
+    </form>
+    </body></html>
+  )rawliteral";
+  server.send(200, "text/html", html);
+}
+
+void handleSave() {
+  if (!server.hasArg("ssid") || !server.hasArg("pass")) {
+    server.send(400, "text/plain", "Missing fields");
+    return;
+  }
+
+  String newSsid = server.arg("ssid");
+  String newPass = server.arg("pass");
+
+  savedWiFiCredentials(newSsid, newPass);
+  server.send(200, "text/plain", "Saved. Restarting...");
+  delay(1000);
+  ESP.restart();
 }
 
 void setMotor(bool turnOn, bool publishToMqtt = true) {
@@ -72,21 +127,24 @@ void setMotor(bool turnOn, bool publishToMqtt = true) {
   }
 }
 
-void WiFiConnection(){
-  preferences.begin("wifi-creds", false);
-  if (!preferences.isKey("ssid")){
-      WiFi.mode(WIFI_AP);
-      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  } else {
-    WiFi.disconnect();
-    WiFi.mode(WIFI_STA);
-    WiFi.hostname(hostname);
-    WiFi.setAutoReconnect(true);
-    WiFi.begin(preferences.getString("ssid"), preferences.getString("pass"));
-    
-  }
-  preferences.end();
+void startDualWiFi(const String &sta_ssid, const String &sta_pass) {
+  // Start AP first to guarantee user access
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  Serial.print("AP IP: ");
+  Serial.println(WiFi.softAPIP());  // Always 192.168.4.1
 
+  // Attempt STA connection
+  WiFi.hostname(hostname);
+  WiFi.setAutoReconnect(true);
+  WiFi.begin(sta_ssid, sta_pass);
+}
+
+void startAPOffly() {
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  Serial.print("AP IP: ");
+  Serial.println(WiFi.softAPIP());
 }
 
 void messageReceived(String &topic, String &payload) {
@@ -115,6 +173,12 @@ void setup() {
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(SWITCH_PIN, INPUT);
 
+  if (!LittleFS.begin()) {
+    Serial.println("LittleFS mount failed — formatting");
+    LittleFS.format();
+    LittleFS.begin();
+  }
+
   lastPhysicalReading = digitalRead(SWITCH_PIN);
   setMotor(lastPhysicalReading == HIGH, false);
 
@@ -122,7 +186,7 @@ void setup() {
 
   // Insecure mode allows TLS connection without validating CA certificates
   net.setInsecure();
-  WiFiConnection();
+  startDualWiFi();
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
