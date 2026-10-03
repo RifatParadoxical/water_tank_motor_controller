@@ -181,25 +181,72 @@ void handleRoot() {
 
 void handleConfigPage() {
   String html = R"rawliteral(
-    <!DOCTYPE html><html><body>
-    <h2>WiFi Config</h2>
-    <form action="/save" method="POST">
-      SSID: <input name="ssid" length="32"><br>
-      Password: <input name="pass" length="64"><br>
-      <input type="submit" value="Save & Restart">
-    </form>
-    </body></html>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>WiFi Config</title>
+      <style>
+        body { background-color: #121212; color: #e0e0e0; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: #1e1e1e; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); width: 100%; max-width: 320px; }
+        h2 { margin-top: 0; color: #fff; text-align: center; }
+        label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; }
+        input[type="text"], input[type="password"] { width: 100%; padding: 0.5rem; margin-bottom: 1rem; background: #2d2d2d; border: 1px solid #444; color: #fff; border-radius: 4px; box-sizing: border-box; }
+        input[type="submit"] { width: 100%; padding: 0.75rem; background: #3b82f6; border: none; color: white; font-weight: bold; border-radius: 4px; cursor: pointer; }
+        input[type="submit"]:hover { background: #2563eb; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h2>WiFi Config</h2>
+        <form action="/save" method="POST">
+          <label>SSID</label>
+          <input type="text" name="ssid" maxlength="32">
+          <label>Password</label>
+          <input type="password" name="pass" maxlength="64">
+          <input type="submit" value="Save & Restart">
+        </form>
+      </div>
+    </body>
+    </html>
   )rawliteral";
   server.send(200, "text/html", html);
 }
 
 void handleStatus() {
-  String json = "{";
-  json += "\"motor\":" + String(motorState ? "true" : "false") + ",";
-  json += "\"sta\":\"" + String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "disconnected") + "\",";
-  json += "\"ap\":\"" + WiFi.softAPIP().toString() + "\"";
-  json += "}";
-  server.send(200, "application/json", json);
+  String html = R"rawliteral(
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>System Status</title>
+      <style>
+        body { background-color: #121212; color: #e0e0e0; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: #1e1e1e; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); width: 100%; max-width: 320px; }
+        h2 { margin-top: 0; color: #fff; text-align: center; }
+        .status-item { margin-bottom: 1rem; font-size: 0.95rem; }
+        .status-item span { font-weight: bold; color: #fff; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h2>System Status</h2>
+        <div class="status-item">Motor State: <span>)rawliteral";
+  html += String(motorState ? "ON" : "OFF");
+  html += R"rawliteral(</span></div>
+        <div class="status-item">STA IP: <span>)rawliteral";
+  html += String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "disconnected");
+  html += R"rawliteral(</span></div>
+        <div class="status-item">AP IP: <span>)rawliteral";
+  html += WiFi.softAPIP().toString();
+  html += R"rawliteral(</span></div>
+      </div>
+    </body>
+    </html>
+  )rawliteral";
+  server.send(200, "text/html", html);
 }
 
 void handleSave() {
