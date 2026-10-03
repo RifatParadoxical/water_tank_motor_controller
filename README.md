@@ -96,6 +96,23 @@ The update page is served over HTTP, not HTTPS. Use it only on a trusted network
 - The relay output is initialized from the GPIO3 switch level during startup.
 - Wi-Fi credentials are stored as `/wifi.json` in LittleFS. Erasing or formatting the filesystem removes them and requires provisioning again.
 
+## Credentials
+
+```C
+#ifndef CREDENTIALS_H
+#define CREDENTIALS_H
+
+#define MQTT_HOST "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.s1.eu.hivemq.cloud"
+#define MQTT_PORT 8883
+#define MQTT_USER "water_controller"
+#define MQTT_PASS "passformqtt"
+#define MOTOR_STATUS "motor/status"
+#define OTA_USERNAME "admin"
+#define OTA_PASSWORD "passforota"
+
+#endif
+```
+
 ## Troubleshooting
 
 | Symptom | Checks |
